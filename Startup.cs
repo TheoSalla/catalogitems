@@ -1,7 +1,13 @@
+using System;
+using System.Linq;
+using System.Net.Mime;
+using System.Text.Json;
 using Catalog.Repositories;
 using Catalog.Settings;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -25,16 +31,17 @@ namespace Catalog
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-
+            //! Make the Id and Datetype properties more easy to work with in the database  
             BsonSerializer.RegisterSerializer(new GuidSerializer(BsonType.String));
             BsonSerializer.RegisterSerializer(new DateTimeOffsetSerializer(BsonType.String));
+
+            //! Mongo db settings
+            var mongoDbSettings = Configuration.GetSection(nameof(MongoDbSettings)).Get<MongoDbSettings>();
 
 
             services.AddSingleton<IMongoClient>(ServiceProvider => 
             {
-                var settings = Configuration.GetSection(nameof(MongoDbSettings)).Get<MongoDbSettings>();
-                return new MongoClient(settings.ConnectionString);
-
+                return new MongoClient(mongoDbSettings.ConnectionString);
             });
 
             services.AddSingleton<IItemsRepository, MongoDbItemsRepository>();
@@ -47,6 +54,14 @@ namespace Catalog
             {
                 c.SwaggerDoc("v1", new OpenApiInfo { Title = "Catalog", Version = "v1" });
             });
+
+
+            services.AddHealthChecks()
+             .AddMongoDb(
+                 mongoDbSettings.ConnectionString, 
+                 name: "mongodb", 
+                 timeout: TimeSpan.FromSeconds(3),
+                 tags: new[]{"ready"});
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -68,6 +83,34 @@ namespace Catalog
             app.UseEndpoints(endpoints =>
             {
                 endpoints.MapControllers();
+
+                endpoints.MapHealthChecks("/health/ready", new HealthCheckOptions{
+                    Predicate = (check) => check.Tags.Contains("ready"),
+                    ResponseWriter = async(context, report) =>
+                    {
+                        var result = JsonSerializer.Serialize(
+                            new {
+                                status = report.Status.ToString(),
+                                checks = report.Entries.Select(entrty => new {
+                                    name = entrty.Key,
+                                    status = entrty.Value.Status.ToString(),
+                                    exception = entrty.Value.Exception != null ? entrty.Value.Exception.Message : "none",
+                                    duration = entrty.Value.Duration.ToString()
+
+                                })
+                            }
+                        );
+
+                        context.Response.ContentType = MediaTypeNames.Application.Json;
+                        await context.Response.WriteAsync(result);
+                    }
+                });
+                
+
+                endpoints.MapHealthChecks("/health/live", new HealthCheckOptions{
+                    Predicate = (_) => false 
+                });
+
             });
         }
     }
