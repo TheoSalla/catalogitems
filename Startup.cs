@@ -17,6 +17,7 @@ using MongoDB.Bson.Serialization;
 using MongoDB.Bson.Serialization.Serializers;
 using MongoDB.Driver;
 
+
 namespace Catalog
 {
     public class Startup
@@ -62,6 +63,7 @@ namespace Catalog
                  name: "mongodb", 
                  timeout: TimeSpan.FromSeconds(3),
                  tags: new[]{"ready"});
+
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -74,8 +76,13 @@ namespace Catalog
                 app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Catalog v1"));
             }
 
-            app.UseHttpsRedirection();
+            if (env.IsDevelopment())
+            {
+                 app.UseHttpsRedirection();
+     
+            }
 
+           
             app.UseRouting();
 
             app.UseAuthorization();
@@ -110,6 +117,7 @@ namespace Catalog
                 endpoints.MapHealthChecks("/health/live", new HealthCheckOptions{
                     Predicate = (_) => false 
                 });
+
 
             });
         }
